@@ -1,14 +1,19 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { addedImages, collectImagesFromYaml } from "./images.js";
-/** Discover image references introduced by changed files in the current pull request. */
-export function discoverChangedImages(baseSha, filePattern) {
-  ensureCommit(baseSha);
+/** Discover image references introduced on HEAD compared with the merge base of the supplied ref. */
+export function discoverChangedImages(baseRef, filePattern) {
+  ensureRef(baseRef);
+  const baseSha = git(["merge-base", baseRef, "HEAD"]).trim();
+  if (!baseSha) {
+    throw new Error(`unable to determine merge base for ${baseRef}`);
+  }
   const files = git([
     "diff",
     "--name-only",
     "--diff-filter=ACMR",
     baseSha,
+    "HEAD",
     "--",
   ])
     .split("\n")
@@ -31,11 +36,11 @@ function readBaseFile(baseSha, file) {
     return "";
   }
 }
-function ensureCommit(sha) {
+function ensureRef(ref) {
   try {
-    git(["cat-file", "-e", `${sha}^{commit}`]);
+    git(["rev-parse", "--verify", `${ref}^{commit}`]);
   } catch {
-    git(["fetch", "--no-tags", "--depth=1", "origin", sha]);
+    git(["fetch", "--no-tags", "origin", `${ref}:${ref}`]);
   }
 }
 function git(args) {

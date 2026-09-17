@@ -1,8 +1,8 @@
 {
   "name": "image-platform-check",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "GitHub Action that verifies changed container images provide required OCI platforms.",
+  "description": "GitHub Action and reusable Renovate branch gate for OCI image platform availability.",
   "type": "module",
   "scripts": {
     "build": "tsc",

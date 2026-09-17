@@ -1,0 +1,162 @@
+name: Image platform gate
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: Check the current Renovate branch or all Renovate branches.
+        required: false
+        type: string
+        default: current
+      platforms:
+        description: Required OCI platforms.
+        required: false
+        type: string
+        default: linux/amd64
+      branch-prefix:
+        description: Renovate branch prefix to discover in all mode.
+        required: false
+        type: string
+        default: renovate/
+      file-pattern:
+        description: JavaScript regular expression used to select changed files.
+        required: false
+        type: string
+        default: \.(?:ya?ml)$
+      status-context:
+        description: Commit status context written to Renovate branch commits.
+        required: false
+        type: string
+        default: image-platform-check
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      branches: ${{ steps.branches.outputs.branches }}
+      default-branch: ${{ steps.branches.outputs.default-branch }}
+    steps:
+      - name: Select Renovate branches
+        id: branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+          BRANCH_PREFIX: ${{ inputs.branch-prefix }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          default_branch=$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.default_branch')
+          echo "default-branch=${default_branch}" >> "$GITHUB_OUTPUT"
+
+          branches='[]'
+          case "$MODE" in
+            current)
+              if [[ "${GITHUB_REF_NAME}" != "${BRANCH_PREFIX}"* ]]; then
+                echo "Current branch ${GITHUB_REF_NAME} does not match ${BRANCH_PREFIX}*." >&2
+                exit 1
+              fi
+              branches=$(jq -cn \
+                --arg branch "$GITHUB_REF_NAME" \
+                --arg sha "$GITHUB_SHA" \
+                '[{branch: $branch, sha: $sha}]')
+              ;;
+            all)
+              while IFS=$'\t' read -r ref sha; do
+                [[ -n "$ref" ]] || continue
+                branch=${ref#refs/heads/}
+                branches=$(jq -c \
+                  --arg branch "$branch" \
+                  --arg sha "$sha" \
+                  '. + [{branch: $branch, sha: $sha}]' <<< "$branches")
+              done < <(
+                gh api --paginate \
+                  "repos/${GITHUB_REPOSITORY}/git/matching-refs/heads/${BRANCH_PREFIX}" \
+                  --jq '.[] | [.ref, .object.sha] | @tsv'
+              )
+              ;;
+            *)
+              echo "Unsupported mode: ${MODE}. Expected current or all." >&2
+              exit 1
+              ;;
+          esac
+
+          if [[ "$branches" == '[]' ]]; then
+            branches='[{"branch":"","sha":""}]'
+          fi
+
+          echo "branches=${branches}" >> "$GITHUB_OUTPUT"
+
+  check:
+    needs: discover
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.discover.outputs.branches) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Mark check pending
+        if: matrix.target.branch != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ matrix.target.sha }}
+          STATUS_CONTEXT: ${{ inputs.status-context }}
+        shell: bash
+        run: |
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${SHA}" \
+            -f state=pending \
+            -f context="$STATUS_CONTEXT" \
+            -f description='Checking required image platforms'
+
+      - name: Checkout Renovate branch
+        if: matrix.target.branch != ''
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ matrix.target.sha }}
+          fetch-depth: 0
+
+      - name: Verify image platforms
+        if: matrix.target.branch != ''
+        id: verify
+        continue-on-error: true
+        uses: $/
+        with:
+          base-ref: origin/${{ needs.discover.outputs.default-branch }}
+          platforms: ${{ inputs.platforms }}
+          file-pattern: ${{ inputs.file-pattern }}
+
+      - name: Publish branch status
+        if: matrix.target.branch != '' && always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ matrix.target.sha }}
+          STATUS_CONTEXT: ${{ inputs.status-context }}
+          CHECK_OUTCOME: ${{ steps.verify.outcome }}
+          CHECKED: ${{ steps.verify.outputs.checked }}
+          FAILED: ${{ steps.verify.outputs.failed }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$CHECK_OUTCOME" == success ]]; then
+            state=success
+            description="${CHECKED:-0} image(s) provide required platforms"
+          else
+            state=failure
+            description="${FAILED:-1} image(s) missing required platforms"
+          fi
+
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${SHA}" \
+            -f state="$state" \
+            -f context="$STATUS_CONTEXT" \
+            -f description="$description" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"

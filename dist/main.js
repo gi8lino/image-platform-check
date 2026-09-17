@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { discoverChangedImages } from "./git.js";
 import { inspectPlatforms } from "./inspect.js";
 import { formatPlatform, matchesPlatform, parsePlatform } from "./platform.js";
@@ -21,7 +20,7 @@ export function run() {
     }
     const explicitImages = splitInput(getInput("images"));
     const images =
-      explicitImages.length > 0 ? explicitImages : discoverFromPullRequest();
+      explicitImages.length > 0 ? explicitImages : discoverImages();
     console.log(
       `Required platforms: ${required.map(formatPlatform).join(", ")}`,
     );
@@ -82,21 +81,15 @@ export function run() {
     fail(errorMessage(error));
   }
 }
-function discoverFromPullRequest() {
-  const eventName = process.env.GITHUB_EVENT_NAME;
-  const eventPath = process.env.GITHUB_EVENT_PATH;
-  if (eventName !== "pull_request" || !eventPath) {
+function discoverImages() {
+  const baseRef = getInput("base-ref");
+  if (!baseRef) {
     throw new Error(
-      "automatic image discovery requires a pull_request event; provide the images input for other events",
+      "automatic image discovery requires the base-ref input; provide images to skip discovery",
     );
   }
-  const payload = JSON.parse(readFileSync(eventPath, "utf8"));
-  const baseSha = payload.pull_request?.base?.sha;
-  if (!baseSha) {
-    throw new Error("pull request base SHA is unavailable");
-  }
   const pattern = new RegExp(getInput("file-pattern") || "\\.(?:ya?ml)$");
-  return discoverChangedImages(baseSha, pattern);
+  return discoverChangedImages(baseRef, pattern);
 }
 function splitInput(value) {
   return [

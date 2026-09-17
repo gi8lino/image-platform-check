@@ -1,43 +1,165 @@
 # Image Platform Check
 
-A GitHub Action that prevents pull requests from merging container image updates before the required OCI platform is actually available in the registry.
+A GitHub Action and reusable Renovate branch gate that waits to open dependency pull requests until newly referenced container images are actually available for the required OCI platforms.
 
-This is useful for Renovate, Dependabot, GitOps repositories, and manual image updates. A registry may publish a tag before every architecture has finished building; this action checks the manifest rather than only checking whether the tag exists.
+This solves a common multi-architecture publishing race: a registry tag can exist while one architecture is still being built. Renovate sees the new tag, but `linux/amd64` or another required platform may not be available yet.
 
-## Example
+## Recommended: Renovate branch gate
 
-```yaml
-name: Verify container images
+Configure Renovate to create its update branch first and wait for branch statuses before opening the pull request:
 
-on:
-  pull_request:
-    paths:
-      - "**/*.yaml"
-      - "**/*.yml"
-
-permissions:
-  contents: read
-
-jobs:
-  verify-images:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Verify image platforms
-        uses: gi8lino/image-platform-check@v1
-        with:
-          platforms: linux/amd64
+```json
+{
+  "prCreation": "status-success"
+}
 ```
 
-If a pull request changes `nextcloud:31` to `nextcloud:32` while only `linux/arm64` has been published, the job fails. Re-run the job after `linux/amd64` is published and it becomes green without changing the pull request.
+Then add this workflow to the repository Renovate updates:
+
+```yaml
+---
+name: Image platform gate
+
+"on":
+  push:
+    branches:
+      - "renovate/**"
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  gate:
+    permissions:
+      contents: read
+      statuses: write
+    uses: gi8lino/image-platform-check/.github/workflows/gate.yml@v1
+    with:
+      mode: ${{ github.event_name == 'push' && 'current' || 'all' }}
+      platforms: linux/amd64
+```
+
+The flow is:
+
+```text
+Renovate creates renovate/... branch
+              |
+              v
+     image-platform-check
+              |
+       +------+------+
+       |             |
+ linux/amd64     linux/amd64
+   missing         available
+       |             |
+   failure         success
+   status           status
+       |             |
+   no PR yet    Renovate may
+                open the PR
+```
+
+A scheduled run rechecks every `renovate/**` branch. When an image finishes publishing, the same branch commit status changes from `failure` to `success`; no new commit is required.
+
+### `current` and `all` modes
+
+`current` checks only the Renovate branch that triggered the workflow. Use it for `push` events.
+
+`all` discovers every branch under `renovate/` and rechecks each branch. Use it for scheduled and manual runs.
+
+The default commit status context is `image-platform-check`.
+
+## Example: Nextcloud
+
+Suppose Renovate updates:
+
+```yaml
+image: nextcloud:32.0.0
+```
+
+and the tag currently contains only:
+
+```text
+linux/arm64
+linux/arm/v7
+```
+
+The Renovate branch receives:
+
+```text
+image-platform-check: failure
+```
+
+When `linux/amd64` later appears, the scheduled gate updates the same commit to:
+
+```text
+image-platform-check: success
+```
+
+With Renovate `prCreation: status-success`, the PR is not opened until its branch statuses pass.
+
+## Reusable workflow inputs
+
+### `mode`
+
+`current` or `all`. Default: `current`.
+
+### `platforms`
+
+Required OCI platforms separated by commas, whitespace, or newlines. Default: `linux/amd64`.
+
+```yaml
+with:
+  platforms: |
+    linux/amd64
+    linux/arm64
+```
+
+Every configured platform must exist.
+
+### `branch-prefix`
+
+Branch prefix used by `all` mode. Default: `renovate/`.
+
+### `file-pattern`
+
+JavaScript regular expression used to select changed files. Default: `\.(?:ya?ml)$`.
+
+### `status-context`
+
+Commit status context written to each Renovate branch commit. Default: `image-platform-check`.
+
+## Standalone action
+
+The underlying checker can also be used directly. Automatic discovery compares `HEAD` against the merge base of `base-ref`:
+
+```yaml
+- name: Checkout
+  uses: actions/checkout@v6
+  with:
+    fetch-depth: 0
+
+- name: Verify image platforms
+  uses: gi8lino/image-platform-check@v1
+  with:
+    base-ref: origin/main
+    platforms: linux/amd64
+```
+
+You can bypass discovery and check explicit images:
+
+```yaml
+- uses: gi8lino/image-platform-check@v1
+  with:
+    images: |
+      nextcloud:latest
+      redis:8
+    platforms: linux/amd64
+```
 
 ## What it detects
 
-The action discovers newly introduced image references in changed YAML files. It understands common forms including:
+The checker discovers newly introduced image references in changed YAML files. It understands common forms including:
 
 ```yaml
 image: nextcloud:32.0.0
@@ -59,32 +181,19 @@ images:
 
 Templated references such as `{{ .Values.image }}` are ignored because they cannot be resolved reliably from the repository alone.
 
-## Inputs
+## Standalone action inputs
 
 ### `platforms`
 
-Required OCI platforms separated by commas, whitespace, or newlines. Default: `linux/amd64`.
-
-```yaml
-with:
-  platforms: |
-    linux/amd64
-    linux/arm64
-```
-
-Every configured platform must exist.
+Required OCI platforms. Default: `linux/amd64`.
 
 ### `images`
 
-Optional explicit image references. When set, PR discovery is skipped. This also allows the action to run outside `pull_request` events.
+Optional explicit image references. When provided, changed-file discovery is skipped.
 
-```yaml
-with:
-  images: |
-    nextcloud:latest
-    redis:8
-  platforms: linux/amd64
-```
+### `base-ref`
+
+Git ref used as the comparison base for automatic discovery. The action computes the merge base with `HEAD`, so it checks only changes introduced by the update branch.
 
 ### `file-pattern`
 
@@ -100,32 +209,28 @@ JavaScript regular expression used to select changed files. Default: `\.(?:ya?ml
 
 ## Private registries
 
-The action uses `docker buildx imagetools inspect`, so it honors Docker credentials already configured on the runner. Log in before running the action:
+The checker uses `docker buildx imagetools inspect`, so it honors Docker credentials already configured on the runner. Log in before using the standalone action if needed.
+
+The reusable branch gate is intended primarily for public images. If Renovate branches reference private registries, create a caller-specific workflow that authenticates before invoking the standalone action, or extend the gate for the authentication mechanism you need.
+
+## Permissions
+
+The caller must grant:
 
 ```yaml
-- name: Log in to registry
-  uses: docker/login-action@v3
-  with:
-    registry: ghcr.io
-    username: ${{ github.actor }}
-    password: ${{ secrets.GITHUB_TOKEN }}
-
-- name: Verify image platforms
-  uses: gi8lino/image-platform-check@v1
+permissions:
+  contents: read
+  statuses: write
 ```
 
-No registry credentials are handled by this action itself.
-
-## Recommended branch protection
-
-Make the image-platform job a required status check. Renovate or another bot can then open the pull request immediately, but GitHub will prevent the merge until all required image architectures are available.
+`statuses: write` is required because the gate writes a commit status directly onto the Renovate branch SHA.
 
 ## Development
 
 Requirements: Node.js 24 and Docker with Buildx.
 
 ```bash
-npm ci
+npm install
 npm run typecheck
 npm test
 npm run build
