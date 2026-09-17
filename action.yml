@@ -1,0 +1,33 @@
+name: Image Platform Check
+description: Verify that container images changed by a pull request provide the required OCI platforms.
+author: gi8lino
+
+branding:
+  icon: package
+  color: blue
+
+inputs:
+  platforms:
+    description: Comma, whitespace, or newline separated required platforms (for example linux/amd64, linux/arm64).
+    required: false
+    default: linux/amd64
+  images:
+    description: Optional explicit image references to check instead of discovering changed images from YAML files.
+    required: false
+    default: ""
+  file-pattern:
+    description: JavaScript regular expression used to select changed files.
+    required: false
+    default: \.(?:ya?ml)$
+
+outputs:
+  checked:
+    description: Number of image references checked.
+  failed:
+    description: Number of image references missing at least one required platform.
+  images:
+    description: JSON array of checked image references.
+
+runs:
+  using: node24
+  main: dist/main.js
