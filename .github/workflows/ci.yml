@@ -12,6 +12,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -20,18 +21,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-
-      - name: Install dependencies
-        run: npm install --ignore-scripts
-
-      - name: Typecheck
-        run: npm run typecheck
+          cache: npm
 
       - name: Test
-        run: npm test
-
-      - name: Build
-        run: npm run build
-
-      - name: Verify committed distribution
-        run: git diff --exit-code -- dist
+        run: make test

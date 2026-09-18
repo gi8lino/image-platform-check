@@ -39,7 +39,7 @@ check-dist: build ## Verify the committed distribution matches the TypeScript so
 	git diff --exit-code -- dist
 
 .PHONY: test
-test: typecheck test-unit check-dist ## Run all tests and verify the committed distribution.
+test: fmt-check typecheck test-unit check-dist ## Run all checks and tests.
 
 .PHONY: clean
 clean: ## Remove local dependencies and generated files.
