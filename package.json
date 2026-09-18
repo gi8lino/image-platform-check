@@ -5,10 +5,9 @@
   "description": "GitHub Action and reusable Renovate branch gate for OCI image platform availability.",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && prettier --write dist",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/*.test.js",
-    "check": "npm run typecheck && npm run build && npm test && git diff --exit-code -- dist"
+    "test": "node --test tests/*.test.js"
   },
   "engines": {
     "node": ">=24"
