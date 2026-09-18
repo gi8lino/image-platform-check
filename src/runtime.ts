@@ -15,7 +15,11 @@ export function setOutput(name: string, value: string | number): void {
   }
 
   const delimiter = `image_platform_check_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  appendFileSync(output, `${name}<<${delimiter}\n${value}\n${delimiter}\n`, "utf8");
+  appendFileSync(
+    output,
+    `${name}<<${delimiter}\n${value}\n${delimiter}\n`,
+    "utf8",
+  );
 }
 
 /** Append Markdown to the GitHub job summary when one is available. */

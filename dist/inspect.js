@@ -21,14 +21,19 @@ function toPlatform(value) {
         return undefined;
     }
     const candidate = value;
-    if (typeof candidate.os !== "string" || typeof candidate.architecture !== "string") {
+    if (typeof candidate.os !== "string" ||
+        typeof candidate.architecture !== "string") {
         return undefined;
     }
     if (candidate.os === "unknown" || candidate.architecture === "unknown") {
         return undefined;
     }
     return typeof candidate.variant === "string"
-        ? { os: candidate.os, architecture: candidate.architecture, variant: candidate.variant }
+        ? {
+            os: candidate.os,
+            architecture: candidate.architecture,
+            variant: candidate.variant,
+        }
         : { os: candidate.os, architecture: candidate.architecture };
 }
 function uniquePlatforms(platforms) {

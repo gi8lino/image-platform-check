@@ -38,7 +38,9 @@ images:
 });
 
 test("ignores templated image references", () => {
-  const images = collectImagesFromYaml('image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"');
+  const images = collectImagesFromYaml(
+    'image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"',
+  );
   assert.deepEqual([...images], []);
 });
 

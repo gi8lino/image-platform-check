@@ -38,7 +38,11 @@ function collectImageObjects(lines, images) {
         }
         const digest = fields.get("digest");
         const tag = fields.get("tag");
-        addImage(images, digest ? `${repository}@${digest}` : tag ? `${repository}:${tag}` : repository);
+        addImage(images, digest
+            ? `${repository}@${digest}`
+            : tag
+                ? `${repository}:${tag}`
+                : repository);
     }
 }
 function collectKustomizeImages(lines, images) {
@@ -117,14 +121,19 @@ function flushKustomizeItem(item, images) {
     }
     const digest = item.get("digest");
     const tag = item.get("newTag");
-    addImage(images, digest ? `${repository}@${digest}` : tag ? `${repository}:${tag}` : repository);
+    addImage(images, digest
+        ? `${repository}@${digest}`
+        : tag
+            ? `${repository}:${tag}`
+            : repository);
 }
 function yamlScalar(raw) {
     let value = raw.trim();
     if (!value || value === "|" || value === ">") {
         return undefined;
     }
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
         value = value.slice(1, -1).trim();
     }
     else {
@@ -134,7 +143,10 @@ function yamlScalar(raw) {
 }
 function addImage(images, value) {
     const normalized = value.trim();
-    if (!normalized || normalized.includes("{{") || normalized.includes("}}") || normalized.includes("${")) {
+    if (!normalized ||
+        normalized.includes("{{") ||
+        normalized.includes("}}") ||
+        normalized.includes("${")) {
         return;
     }
     images.add(normalized);
