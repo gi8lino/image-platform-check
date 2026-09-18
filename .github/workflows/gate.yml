@@ -117,7 +117,7 @@ jobs:
 
       - name: Checkout Renovate branch
         if: matrix.target.branch != ''
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ matrix.target.sha }}
           fetch-depth: 0
